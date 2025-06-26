@@ -140,46 +140,54 @@
         // Importaciones de Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, collection, doc, addDoc, onSnapshot, deleteDoc, setLogLevel, query, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         
+        // --- INICIO DE CONFIGURACIÓN ---
+        
+        // PEGA AQUÍ TU CONFIGURACIÓN DE FIREBASE
+        // Reemplaza este objeto de ejemplo con el tuyo. Lo obtienes al crear
+        // una app web en tu proyecto de Firebase.
+        const firebaseConfig = {
+  apiKey: "AIzaSyDdqLhmnjXYOmdHScwGzglK3HBnhMoOw-Q",
+  authDomain: "mis-ventas-app.firebaseapp.com",
+  projectId: "mis-ventas-app",
+  storageBucket: "mis-ventas-app.firebasestorage.app",
+  messagingSenderId: "372205973007",
+  appId: "1:372205973007:web:133b9ccf5a92ceef5abd7a"
+};
+
+        // --- FIN DE CONFIGURACIÓN ---
+
+
         // Variables globales
         let db, auth, userId;
         let unsubscribeSales; 
         let allSalesData = []; 
         let currentOrderItems = []; 
         let masterProductList = [];
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-sales-app';
-        
-        // --- INICIALIZACIÓN Y FLUJO PRINCIPAL ---
+        const appId = firebaseConfig.projectId;
         
         document.addEventListener('DOMContentLoaded', main);
 
         async function main() {
             const loadingText = document.getElementById('loading-text');
             try {
-                // Paso 1: Intentar obtener la configuración del entorno
-                loadingText.textContent = "Obteniendo configuración...";
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-
                 // VERIFICACIÓN CRÍTICA
-                if (!firebaseConfig || !firebaseConfig.projectId) {
-                    throw new Error(`La configuración de Firebase no fue proveída por el entorno. La aplicación no puede conectarse a la base de datos.`);
+                if (!firebaseConfig || !firebaseConfig.projectId || firebaseConfig.projectId === "tu-proyecto") {
+                    throw new Error(`La configuración de Firebase no ha sido añadida. Por favor, edita el archivo HTML y pega tu "firebaseConfig" en el lugar indicado.`);
                 }
 
-                // Paso 2: Inicializar Firebase
                 loadingText.textContent = "Inicializando Firebase...";
                 const firebaseApp = initializeApp(firebaseConfig);
                 db = getFirestore(firebaseApp);
                 auth = getAuth(firebaseApp);
                 setLogLevel('error');
 
-                // Paso 3: Autenticar al usuario
                 loadingText.textContent = "Autenticando usuario...";
                 const user = await authenticateUser();
                 userId = user.uid;
                 document.getElementById('user-id-display').textContent = userId;
                 
-                // Paso 4: Cargar datos del usuario
                 loadingText.textContent = "Cargando productos...";
                 await loadProducts();
                 
@@ -198,16 +206,11 @@
             return new Promise((resolve, reject) => {
                 const unsubscribe = onAuthStateChanged(auth, async (user) => {
                     if (user) {
-                        unsubscribe(); // Dejamos de escuchar una vez que tenemos usuario
+                        unsubscribe(); 
                         return resolve(user);
                     }
                     try {
-                        const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                        if (token) {
-                            await signInWithCustomToken(auth, token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
+                        await signInAnonymously(auth);
                     } catch (authError) {
                         unsubscribe();
                         console.error("Error en el proceso de autenticación:", authError);
@@ -219,9 +222,6 @@
                 });
             });
         }
-
-
-        // --- LÓGICA DE DATOS (PRODUCTOS Y VENTAS) ---
 
         async function loadProducts() {
             const productDocRef = doc(db, `artifacts/${appId}/users/${userId}/products/masterList`);
