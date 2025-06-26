@@ -142,16 +142,13 @@
         import { getFirestore, collection, doc, addDoc, onSnapshot, deleteDoc, setLogLevel, query, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         
-        // Configuración y variables globales
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-sales-app';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        
+        // Variables globales
         let db, auth, userId;
         let unsubscribeSales; 
         let allSalesData = []; 
         let currentOrderItems = []; 
         let masterProductList = [];
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-sales-app';
         
         // --- INICIALIZACIÓN Y FLUJO PRINCIPAL ---
         
@@ -160,17 +157,29 @@
         async function main() {
             const loadingText = document.getElementById('loading-text');
             try {
+                // Paso 1: Intentar obtener la configuración del entorno
+                loadingText.textContent = "Obteniendo configuración...";
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+                // VERIFICACIÓN CRÍTICA
+                if (!firebaseConfig || !firebaseConfig.projectId) {
+                    throw new Error(`La configuración de Firebase no fue proveída por el entorno. La aplicación no puede conectarse a la base de datos.`);
+                }
+
+                // Paso 2: Inicializar Firebase
                 loadingText.textContent = "Inicializando Firebase...";
                 const firebaseApp = initializeApp(firebaseConfig);
                 db = getFirestore(firebaseApp);
                 auth = getAuth(firebaseApp);
                 setLogLevel('error');
 
+                // Paso 3: Autenticar al usuario
                 loadingText.textContent = "Autenticando usuario...";
                 const user = await authenticateUser();
                 userId = user.uid;
                 document.getElementById('user-id-display').textContent = userId;
                 
+                // Paso 4: Cargar datos del usuario
                 loadingText.textContent = "Cargando productos...";
                 await loadProducts();
                 
@@ -180,30 +189,33 @@
             } catch (error) {
                 console.error("Error catastrófico en el inicio:", error);
                 const salesTableBody = document.getElementById('sales-table-body');
-                salesTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-red-500"><strong>Error al iniciar la aplicación:</strong><br>${error.message}<br>Por favor, recarga la página. Si el problema persiste, revisa la configuración de Firebase.</td></tr>`;
+                salesTableBody.innerHTML = `<tr><td colspan="5" class="text-center p-8 text-red-500"><strong class="text-lg">Error al iniciar la aplicación</strong><br><p class="mt-2 font-mono bg-red-100 p-2 rounded">${error.message}</p></td></tr>`;
                 document.getElementById('product-select').innerHTML = `<option>Error de inicio</option>`;
             }
         }
         
         function authenticateUser() {
             return new Promise((resolve, reject) => {
-                onAuthStateChanged(auth, async (user) => {
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
                     if (user) {
+                        unsubscribe(); // Dejamos de escuchar una vez que tenemos usuario
                         return resolve(user);
                     }
-                    // Si no hay usuario, intentamos loguear
                     try {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
+                        const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                        if (token) {
+                            await signInWithCustomToken(auth, token);
                         } else {
                             await signInAnonymously(auth);
                         }
-                        // Después de un intento de login exitoso, onAuthStateChanged se volverá a disparar con el usuario
-                        // y el "if (user)" de arriba lo resolverá. No necesitamos hacer nada aquí.
                     } catch (authError) {
+                        unsubscribe();
                         console.error("Error en el proceso de autenticación:", authError);
                         reject(new Error("Fallo en la autenticación."));
                     }
+                }, (error) => {
+                    unsubscribe();
+                    reject(error);
                 });
             });
         }
@@ -332,7 +344,33 @@
         function closeImportModal() { importModal.classList.add('opacity-0', 'pointer-events-none'); importModal.querySelector('div').classList.add('scale-95'); }
         document.getElementById('open-import-modal-btn').addEventListener('click', openImportModal);
         document.getElementById('close-import-modal-btn').addEventListener('click', closeImportModal);
-        document.getElementById('process-import-btn').addEventListener('click', async () => { const lines = importTextarea.value.trim().split('\n'); const newProductList = []; let count = 0; lines.forEach(line => { const parts = line.split(/[\t,]/); if (parts.length === 2) { const name = parts[0].trim(); const price = parseFloat(parts[1].trim().replace('$', '')); if (name && !isNaN(price)) { newProductList.push({ name, price }); count++; } } }); if (count > 0) { masterProductList = newProductList; await saveProducts(); populateProductDropdown(); importFeedback.textContent = `¡${count} productos guardados!`; importFeedback.className = `text-sm mt-2 text-green-600`; setTimeout(closeImportModal, 1500); } else { importFeedback.textContent = 'No se encontraron productos válidos.'; importFeedback.className = `text-sm mt-2 text-red-500`; } });
+        document.getElementById('process-import-btn').addEventListener('click', async () => { 
+            const lines = importTextarea.value.trim().split('\n'); 
+            const newProductList = []; 
+            let count = 0; 
+            lines.forEach(line => { 
+                const parts = line.split(/[\t,]/); 
+                if (parts.length === 2) { 
+                    const name = parts[0].trim(); 
+                    const price = parseFloat(parts[1].trim().replace('$', '').replace(',', '.')); // Soporta comas
+                    if (name && !isNaN(price)) { 
+                        newProductList.push({ name, price }); 
+                        count++; 
+                    } 
+                } 
+            }); 
+            if (count > 0) { 
+                masterProductList = newProductList; 
+                await saveProducts(); 
+                populateProductDropdown();
+                importFeedback.textContent = `¡${count} productos guardados!`; 
+                importFeedback.className = `text-sm mt-2 text-green-600`; 
+                setTimeout(closeImportModal, 1500); 
+            } else { 
+                importFeedback.textContent = 'No se encontraron productos válidos.'; 
+                importFeedback.className = `text-sm mt-2 text-red-500`; 
+            } 
+        });
 
         const aiModal = document.getElementById('ai-modal'), aiModalTitle = document.getElementById('ai-modal-title'), aiModalContent = document.getElementById('ai-modal-content'), aiModalCloseBtn = document.getElementById('ai-modal-close-btn'), aiModalCopyBtn = document.getElementById('ai-modal-copy-btn');
         function showAiModal(title, content, showCopy = false) { aiModalTitle.textContent = title; aiModalContent.innerHTML = content; aiModalCopyBtn.classList.toggle('hidden', !showCopy); aiModal.classList.remove('opacity-0', 'pointer-events-none'); aiModal.querySelector('div').classList.remove('scale-95'); }
@@ -345,5 +383,3 @@
     </script>
 </body>
 </html>
-```</immersive>
-````
